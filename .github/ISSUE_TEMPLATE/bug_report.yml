@@ -5,6 +5,15 @@ body:
   - type: markdown
     attributes:
       value: |
+        ### ⚠️ 一个 issue 只报一个问题
+
+        把「花屏 + 热键失灵 + 贴图跑偏」混在一条里写着最省事，但之后没法追踪：评论、修复、状态都只挂在一条 issue 上，修好一个、另一个还挂着，这条既关不掉也看不出进度，最后还是要回头拆一遍。
+
+        所以：**互不相关的问题请分开提，各自写完整的复现步骤**。如果确实有关联（同一处原因引起的两处表现、或一条依赖另一条），在正文里用 `#123` 互相链接一句就够了。同一个问题在多个版本上都能复现的，合成一条写。
+
+  - type: markdown
+    attributes:
+      value: |
         **先做三件事，能省掉一整轮来回：**
         1. 确认用的是**最新正式版**（[Release 页](https://github.com/bd-dxg/airsnip/releases/latest) 顶上的那一版），旧版上的问题可能已经修了；
         2. 用下面的「版本」字段填上确切版本号，不要写「最新版」；
@@ -20,6 +29,8 @@ body:
         - label: 我已在最新正式版上复现过这个问题
           required: true
         - label: 我已搜索过已有 issue（含已关闭的），没有重复
+          required: true
+        - label: 这一条 issue 只描述了一个问题（互不相关的问题请分别提交）
           required: true
 
   - type: input
