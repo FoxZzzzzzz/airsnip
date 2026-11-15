@@ -164,6 +164,9 @@ pub enum RowId {
     Licenses,
     /// 检查更新（SYS-7）：右侧显示当前更新状态，整行可点。
     CheckUpdate,
+    /// 我要反馈（SYS-8）：不单独占一行，作为「关于」行右侧的按钮；
+    /// 点击后把版本 / Windows 版本 / 显示器 / HDR / 显卡写进剪贴板。
+    CopyInfo,
     /// 启动时自动检查更新开关（SYS-7）。
     AutoCheckUpdate,
     /// 支持项目（关于页：文案 + 微信赞赏码）。

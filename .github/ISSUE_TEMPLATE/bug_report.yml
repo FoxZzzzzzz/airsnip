@@ -16,7 +16,7 @@ body:
       value: |
         **先做三件事，能省掉一整轮来回：**
         1. 确认用的是**最新正式版**（[Release 页](https://github.com/bd-dxg/airsnip/releases/latest) 顶上的那一版），旧版上的问题可能已经修了；
-        2. 用下面的「版本」字段填上确切版本号，不要写「最新版」；
+        2. **版本和运行环境不用手抄**：打开 AirSnip 的「设置 → 关于」，点右侧的 **「我要反馈」** ——它会把版本号、Windows 版本、显示器（分辨率 / 缩放 / HDR）、显卡、相关开关一起**复制进剪贴板**，并在面板底部弹出一条带「打开反馈页」按钮的通知（**几秒内点那个按钮才会打开网页**；你已经在本页就不用点，直接粘贴即可）。把剪贴板内容粘到下面的「日志与补充信息」，**第一行就是版本号**（顺手抄进「版本」字段）；
         3. 截图类问题请把**复现步骤写到能照着做**，最好附一张表现异常的截图。
 
         有些「问题」是刻意的设计取舍（只支持 Windows 10 1607+ / Windows 11，长截图需手动滚动等），提交前请先扫一眼 [README 的「已知限制」](https://github.com/bd-dxg/airsnip#已知限制)。OCR / 翻译已在后续版本撤销（见 [ADR 0035](https://github.com/bd-dxg/airsnip/blob/main/docs/adr/0035-remove-ocr.md)），相关需求请用其他软件。
@@ -37,7 +37,7 @@ body:
     id: version
     attributes:
       label: AirSnip 版本
-      description: 设置 → 关于 页里显示的版本号；自己编译的请附上 commit 或分支
+      description: 设置 → 关于 页显示的版本号（不要写「最新版」）；点该页的「我要反馈」会复制一份系统信息，第一行就是版本号。自己编译的请附 commit 或分支
     validations:
       required: true
 
@@ -79,7 +79,9 @@ body:
     id: environment
     attributes:
       label: 运行环境（多选，选填）
-      description: 勾上所有涉及项，与显示相关的 bug 往往只在这些条件下出现
+      description: |
+        勾上所有涉及项，与显示相关的 bug 往往只在这些条件下出现。
+        不确定的话看「我要反馈」复制的那份信息：显示器数量 / 分辨率 / 缩放 / HDR / 是否自启都在里面，对着勾即可。
       options:
         - label: 系统是精简 / 定制版（Ghost、LTSC 魔改、移除了商店应用或系统「截图工具」等）
         - label: 多显示器（请在下方补充数量、分辨率、是否为同一缩放）
@@ -96,6 +98,7 @@ body:
       label: 日志与补充信息
       description: |
         选填，但涉及崩溃、显示异常、热键失灵时基本是必看项。
+        **最省事的方式**：设置 → 关于 →「我要反馈」，把剪贴板内容粘到最前面（含版本 / Windows 版本 / 显示器 / HDR / 显卡 / 关键开关）。
         1. 设置环境变量 `AIRSNIP_DEBUG=1` 后启动程序（`cmd` 里执行 `set AIRSNIP_DEBUG=1` 再运行 `airsnip.exe`），复现一次，把输出贴上来（崩溃类问题请顺便说一句是 Win10 还是 Win11）；
         2. 配置文件在 `%APPDATA%\airsnip\config.toml`，涉及热键/偏好设置的问题请贴内容（里面没有账号类信息）；
         3. 上面勾选项要求补充的细节，或任何你认为相关的内容。

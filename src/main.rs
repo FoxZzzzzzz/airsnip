@@ -7,6 +7,7 @@
 
 pub mod app;
 pub mod capture;
+pub mod diagnose;
 pub mod editor;
 pub mod longshot;
 pub mod output;

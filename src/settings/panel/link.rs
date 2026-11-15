@@ -33,6 +33,9 @@ fn button_state(row: &super::controls::Row) -> (String, bool, bool) {
     (text, enabled, state::button_emphasis(&phase))
 }
 
+/// 「关于」行右侧的反馈按钮文案（SYS-8）。
+pub(super) const ABOUT_BTN_TEXT: &str = "我要反馈";
+
 /// 按钮几何（纯计算，便于测试）：高度与快捷键行的键帽一致（30px 基准），宽度按文字量算，
 /// 右对齐、不超出控件区。
 fn btn_geom(control: SelRect, text_w: f32, s: f32) -> SelRect {
@@ -61,31 +64,75 @@ fn button_geom(panel: &Panel, row: &super::controls::Row) -> (SelRect, f32) {
     (btn_geom(row.control, tw, s), tw)
 }
 
-/// 按钮风格行：真正的按钮外观（圆角底 + 边框 + 居中文字）。
-/// 「恢复默认」（快捷键页）为固定文案；「版本更新」（关于页）文案随状态变、忙时置灰。
-/// `hovered`：鼠标悬停在按钮上时给强调底色，明确「可点」（悬停在行内空白处不算）。
-pub(super) fn draw_button(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row, hovered: bool) {
+/// 「关于」行反馈按钮的矩形（SYS-8）：绘制与命中共用一份几何。
+pub(super) fn about_button_rect(panel: &Panel, row: &super::controls::Row) -> SelRect {
+    let (tw, _) = dwrite::measure(ABOUT_BTN_TEXT, &dwrite::FontSpec::new(15.0 * panel.scale));
+    btn_geom(row.control, tw, panel.scale)
+}
+
+/// 「关于」行右侧的反馈按钮（SYS-8）：与更新按钮同一套外观，文案固定「我要反馈」。
+pub(super) fn draw_about_button(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row, hovered: bool) {
+    let btn = about_button_rect(panel, row);
+    paint_button(pixmap, panel, btn, ABOUT_BTN_TEXT, false, hovered);
+}
+
+/// 按钮外观（圆角底 + 边框 + 居中文字）；行按钮与关于行反馈按钮共用。
+fn paint_button(pixmap: &mut Pixmap, panel: &Panel, btn: SelRect, text: &str, emphasis: bool, hovered: bool) {
     let p = panel.palette;
     let s = panel.scale;
-    let (text, enabled, emphasis) = button_state(row);
-    let (btn, tw) = button_geom(panel, row);
-    let size = 15.0 * s;
-    let spec = dwrite::FontSpec::new(size);
-
-    let (fill, border, fg) = if !enabled {
-        // 忙：素色底 + 灰字，看起来就是「点不了」
-        ([p.bg[0], p.bg[1], p.bg[2], 255], p.border, p.text_dim)
-    } else if emphasis || hovered {
+    let (fill, border, fg) = if emphasis || hovered {
         // 悬停，或「有新版本 / 失败可重试」：强调底色
         (p.accent_soft, p.accent, p.accent)
     } else {
         ([p.bg[0], p.bg[1], p.bg[2], 255], p.border, p.text)
     };
     rounded_rect(pixmap, btn, (6.0 * s) as f32, fill, Some(border));
-
+    let size = 15.0 * s;
+    let (tw, _) = dwrite::measure(text, &dwrite::FontSpec::new(size));
     let x = btn.x as f32 + (btn.w as f32 - tw) / 2.0;
     let y = btn.y as f32 + (btn.h as f32 - size * 1.2) / 2.0;
-    dwrite::draw(pixmap, Point::new(x, y), &text, &spec, fg, Transform::identity());
+    dwrite::draw(
+        pixmap,
+        Point::new(x, y),
+        text,
+        &dwrite::FontSpec::new(size),
+        fg,
+        Transform::identity(),
+    );
+}
+
+/// 按钮风格行：真正的按钮外观（圆角底 + 边框 + 居中文字）。
+/// 「恢复默认」（快捷键页）为固定文案；「版本更新」（关于页）文案随状态变、忙时置灰。
+/// `hovered`：鼠标悬停在按钮上时给强调底色，明确「可点」（悬停在行内空白处不算）。
+pub(super) fn draw_button(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row, hovered: bool) {
+    let (text, enabled, emphasis) = button_state(row);
+    let (btn, _) = button_geom(panel, row);
+    if !enabled {
+        // 忙：素色底 + 灰字，看起来就是「点不了」
+        let p = panel.palette;
+        let s = panel.scale;
+        rounded_rect(
+            pixmap,
+            btn,
+            (6.0 * s) as f32,
+            [p.bg[0], p.bg[1], p.bg[2], 255],
+            Some(p.border),
+        );
+        let size = 15.0 * s;
+        let (tw, _) = dwrite::measure(&text, &dwrite::FontSpec::new(size));
+        let x = btn.x as f32 + (btn.w as f32 - tw) / 2.0;
+        let y = btn.y as f32 + (btn.h as f32 - size * 1.2) / 2.0;
+        dwrite::draw(
+            pixmap,
+            Point::new(x, y),
+            &text,
+            &dwrite::FontSpec::new(size),
+            p.text_dim,
+            Transform::identity(),
+        );
+        return;
+    }
+    paint_button(pixmap, panel, btn, &text, emphasis, hovered);
 }
 
 /// 右侧对齐的指定颜色文本。
@@ -164,5 +211,23 @@ mod tests {
             let (w, _) = dwrite::measure(&text, &dwrite::FontSpec::new(15.0));
             assert!(w <= limit, "{ph:?} 按钮文案过宽：{w} > {limit}");
         }
+    }
+
+    /// 「关于」行反馈按钮文案（SYS-8）也要能装进控件区，不能把版本文字挤掉。
+    #[test]
+    fn about_button_fits_control_width() {
+        let c = SelRect {
+            x: 400,
+            y: 0,
+            w: 260,
+            h: 46,
+        };
+        let (tw, _) = dwrite::measure(ABOUT_BTN_TEXT, &dwrite::FontSpec::new(15.0));
+        let r = btn_geom(c, tw, 1.0);
+        assert!(r.x > c.x && r.x + r.w <= c.x + c.w, "{r:?}");
+        // 版本文字右对齐到按钮左缘前仍应留得下：`v0.12.0 · GPL-3.0`
+        let (vw, _) = dwrite::measure("v0.12.0 · GPL-3.0", &dwrite::FontSpec::new(16.0));
+        let left_after_text = r.x as f32 - 12.0 - vw;
+        assert!(left_after_text > c.x as f32, "版本文字会越过控件区左缘");
     }
 }

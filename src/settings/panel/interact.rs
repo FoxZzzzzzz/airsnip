@@ -18,6 +18,10 @@ use super::keycap::Zone;
 impl Panel {
     /// 命中：导航区 → (分类, None)；内容区 → (None, 行下标)。
     pub(super) fn hover_at(&self, x: i32, y: i32) -> (Option<Section>, Option<usize>) {
+        // 通知覆盖区域不报行悬停：否则通知下面的行会跟着亮（SYS-8）
+        if super::copyinfo::is_over(self, x, y) {
+            return (None, None);
+        }
         if x < self.nav_w() {
             let nh = (NAV_H as f32 * self.scale) as i32;
             return (Section::ALL.get((y / nh.max(1)) as usize).copied(), None);
@@ -37,6 +41,16 @@ impl Panel {
                     if r.kind == RowKind::Button && !in_rect(super::link::button_rect(self, r), x, y) {
                         return None;
                     }
+                    // 「关于」行同理：整行只有「我要反馈」按钮可点（SYS-8）；命中它时按
+                    // `RowId::CopyInfo` 返回，让点击逻辑落到反馈动作上（行的 ID 仍是 About）
+                    let id = if r.kind == RowKind::About {
+                        if !in_rect(super::link::about_button_rect(self, r), x, y) {
+                            return None;
+                        }
+                        RowId::CopyInfo
+                    } else {
+                        r.id
+                    };
                     // 清除按钮在控件区内部，必须先判，否则会被当成键帽进捕获（SYS-2）
                     let zone = if in_rect(r.clear, x, y) {
                         Zone::Clear
@@ -45,7 +59,7 @@ impl Panel {
                     } else {
                         Zone::Label
                     };
-                    return Some((idx, r.id, zone));
+                    return Some((idx, id, zone));
                 }
                 idx += 1;
             }
@@ -54,6 +68,10 @@ impl Panel {
     }
 
     pub(super) fn on_click(&mut self, x: i32, y: i32) {
+        // 「我要反馈」通知先命中：点其中按钮打开反馈页，点其它位置只吞掉（SYS-8）
+        if super::copyinfo::on_click(self, x, y) {
+            return;
+        }
         // 左侧导航：切换分类
         if x < self.nav_w() {
             let nh = (NAV_H as f32 * self.scale) as i32;
@@ -190,6 +208,11 @@ impl Panel {
             RowId::Licenses => {
                 self.end_capture();
                 crate::app::open::url(crate::app::open::THIRD_PARTY_URL);
+            }
+            // 我要反馈（SYS-8）：复制系统信息 + 轻通知，2 秒后打开新建 issue 页
+            RowId::CopyInfo => {
+                self.end_capture();
+                self.start_feedback();
             }
             // 检查更新（SYS-7）：无待装更新则检查，已有则下载并安装
             RowId::CheckUpdate => {
