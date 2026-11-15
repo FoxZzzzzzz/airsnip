@@ -33,7 +33,7 @@ body:
     id: version
     attributes:
       label: 你正在用的版本
-      description: 设置 → 关于 页里显示的版本号
+      description: 设置 → 关于 页里显示的版本号；点该页的「我要反馈」会复制一份系统信息，第一行就是版本号
     validations:
       required: true
 
@@ -88,3 +88,5 @@ body:
     id: extra
     attributes:
       label: 补充信息
+      description: |
+        选填。**最省事的方式**：设置 → 关于 →「我要反馈」，把剪贴板内容粘到这里（含版本 / Windows 版本 / 显示器 / HDR / 显卡 / 关键开关）。多屏、缩放、渲染相关的问题这块尤其有用。

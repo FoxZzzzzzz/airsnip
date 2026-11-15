@@ -40,6 +40,8 @@ pub(super) fn render(pixmap: &mut Pixmap, panel: &Panel, layout: &Layout) {
     if let Some(rect) = Rect::from_xywh(nav_w - 1.0, 0.0, 1.0, h as f32) {
         pixmap.fill_rect(rect, &paint_of(p.divider), Transform::identity(), None);
     }
+    // 「我要反馈」轻通知（SYS-8）：画在最上层
+    super::copyinfo::draw_toast(pixmap, panel, layout.height);
 }
 
 /// 左侧导航项：选中项左侧竖条 + 强调底色。
@@ -108,8 +110,9 @@ fn draw_row(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row, idx:
     let s = panel.scale;
     let hovered = panel.hover == Some(idx);
     // 悬停底色：圆角矩形，比内容外扩 `HOVER_PAD`，四周留出余量（不再紧贴控件）。
-    // 按钮行不高亮整行（否则是一条长条），改由按钮自身高亮（见 `link::draw_button`）。
-    if hovered && row.kind != RowKind::Button {
+    // 按钮行不高亮整行（否则是一条长条），改由按钮自身高亮（见 `link::draw_button`）；
+    // 「关于」行亦然——整行只有一个「我要反馈」按钮可点。
+    if hovered && !matches!(row.kind, RowKind::Button | RowKind::About) {
         rounded_rect(pixmap, row.hover, (6.0 * s) as f32, p.row_hover, None);
     }
     let size = 16.0 * s;
@@ -128,7 +131,7 @@ fn draw_row(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row, idx:
         RowKind::KeyCap => super::keycap::draw(pixmap, panel, row, hovered),
         RowKind::Radio => draw_radio(pixmap, panel, row),
         RowKind::Readonly => draw_readonly(pixmap, panel, row),
-        RowKind::About => draw_about(pixmap, panel, row),
+        RowKind::About => draw_about(pixmap, panel, row, hovered),
         RowKind::Link => super::link::draw_link(pixmap, panel, row),
         RowKind::Button => super::link::draw_button(pixmap, panel, row, hovered),
         RowKind::Qr => super::reward::draw_block(pixmap, panel, row),
@@ -251,10 +254,17 @@ fn draw_readonly(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row)
     draw_right_text(pixmap, panel, row, text);
 }
 
-/// 关于行：右侧版本与许可。
-fn draw_about(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row) {
+/// 关于行：右侧版本与许可，再右侧是「我要反馈」按钮（SYS-8）。
+fn draw_about(pixmap: &mut Pixmap, panel: &Panel, row: &super::controls::Row, hovered: bool) {
     let text = format!("v{} · GPL-3.0", env!("CARGO_PKG_VERSION"));
-    draw_right_text(pixmap, panel, row, &text);
+    let btn = super::link::about_button_rect(panel, row);
+    let size = 16.0 * panel.scale;
+    let (w, _) = dwrite::measure(&text, &dwrite::FontSpec::new(size));
+    // 版本文字右对齐到按钮左缘前，给按钮留 12px 间距
+    let x = btn.x as f32 - 12.0 * panel.scale - w;
+    let y = row.rect.y as f32 + (row.rect.h as f32 - size * 1.2) / 2.0;
+    draw_text(pixmap, x, y, &text, size, panel.palette.text_dim);
+    super::link::draw_about_button(pixmap, panel, row, hovered);
 }
 
 /// 右侧对齐的说明文本（只读行 / 关于行共用）。

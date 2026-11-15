@@ -6,7 +6,7 @@
 //! 两条路径输出同为 BGRA→RGBA 后的像素数据，供 tiny-skia 使用。
 
 mod hdr;
-mod hdr_display;
+pub(crate) mod hdr_display;
 mod region;
 mod tonemap;
 

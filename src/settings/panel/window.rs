@@ -2,13 +2,15 @@
 //! 设置窗口创建与尺寸校正：窗口类注册（含 exe 图标）、客户区按 DPI 计算、
 //! 上屏 DIB 重建。窗口过程见 `super::wndproc`，交互见 `interact`。
 
+use tiny_skia::Pixmap;
 use windows::Win32::Foundation::{HINSTANCE, HWND, RECT};
 use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
+use windows::Win32::Graphics::Gdi::{BitBlt, GetDC, ReleaseDC, SRCCOPY};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use crate::app::icon_resource;
-use crate::overlay::surface::create_dib_surface;
+use crate::overlay::surface::{convert_rgba_to_bgra, create_dib_surface};
 use crate::overlay::ui::Ui;
 use crate::settings::ThemeSetting;
 use crate::theme::{self, Theme};
@@ -169,5 +171,38 @@ impl Panel {
             let ny = ny.clamp(0, (sh - outer_h).max(0));
             let _ = SetWindowPos(hwnd, None, nx, ny, outer_w, outer_h, SWP_NOZORDER);
         }
+    }
+}
+
+/// 从窗口句柄取回面板状态（`GWLP_USERDATA` 里存的是 `Box::into_raw` 的指针）。
+pub(super) fn app_from(hwnd: HWND) -> Option<&'static mut Panel> {
+    unsafe {
+        let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if ptr == 0 {
+            None
+        } else {
+            Some(&mut *(ptr as *mut Panel))
+        }
+    }
+}
+
+/// 全量重绘：tiny-skia 绘制 → RGBA→BGRA → BitBlt 上屏。
+pub(super) fn repaint_full(hwnd: HWND, panel: &Panel) {
+    let layout = controls::layout(panel.section, panel.scale);
+    let pw = (W as f32 * panel.scale) as u32;
+    let Some(mut pixmap) = Pixmap::new(pw, layout.height as u32) else {
+        return;
+    };
+    super::draw::render(&mut pixmap, panel, &layout);
+    let w = pixmap.width() as i32;
+    let h = pixmap.height() as i32;
+    convert_rgba_to_bgra(pixmap.data(), panel.dib_bits as usize, w, 0, 0, w, h, 1);
+    unsafe {
+        let hdc = GetDC(Some(hwnd));
+        if hdc.0.is_null() {
+            return;
+        }
+        let _ = BitBlt(hdc, 0, 0, w, h, Some(panel.mem_dc), 0, 0, SRCCOPY);
+        let _ = ReleaseDC(Some(hwnd), hdc);
     }
 }

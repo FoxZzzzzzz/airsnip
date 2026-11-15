@@ -6,6 +6,7 @@
 //! 窗口尺寸固定为横向矩形（宽 > 高），切换分类页不改变窗口大小。
 
 mod controls;
+mod copyinfo;
 mod draw;
 mod interact;
 mod keycap;
@@ -16,11 +17,9 @@ mod toolbar_page;
 mod update;
 mod window;
 
-use tiny_skia::Pixmap;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, BitBlt, DeleteDC, DeleteObject, EndPaint, GetDC, HBITMAP, HDC, InvalidateRect, PAINTSTRUCT, ReleaseDC,
-    SRCCOPY, UpdateWindow,
+    BeginPaint, DeleteDC, DeleteObject, EndPaint, HBITMAP, HDC, InvalidateRect, PAINTSTRUCT, UpdateWindow,
 };
 use windows::Win32::UI::Input::Ime::HIMC;
 use windows::Win32::UI::Input::KeyboardAndMouse::VK_SNAPSHOT;
@@ -28,10 +27,9 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use crate::app::{App, message_box};
-use crate::overlay::surface::convert_rgba_to_bgra;
 use crate::theme::{self, Palette};
 
-use controls::{RowId, Section, W};
+use controls::{RowId, Section};
 
 const WINDOW_CLASS: PCWSTR = w!("airsnip.settings");
 
@@ -61,6 +59,8 @@ pub struct Panel {
     pub autostart_on: bool,
     /// 配置有改动、待立即应用（热键/主题即时生效，不等面板关闭）。
     pub(super) config_dirty: bool,
+    /// 「我要反馈」的通知（SYS-8）：文案；存在期间面板底部显示一条带「打开反馈页」按钮的提示。
+    pub(super) toast: Option<String>,
     /// 上屏缓冲（DIB section）。
     pub(super) dib_bmp: HBITMAP,
     pub(super) mem_dc: HDC,
@@ -97,6 +97,7 @@ pub fn run(app: &mut App) {
         // 自启开关显示任务计划真实状态，而非配置猜测（SYS-4）
         autostart_on: crate::app::autostart::autostart_enabled(),
         config_dirty: false,
+        toast: None,
         dib_bmp: Default::default(),
         mem_dc: Default::default(),
         dib_bits: std::ptr::null_mut(),
@@ -183,7 +184,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         }
     }
-    let Some(panel) = app_from(hwnd) else {
+    let Some(panel) = window::app_from(hwnd) else {
         return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
     };
     match msg {
@@ -192,16 +193,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             unsafe {
                 let _ = BeginPaint(hwnd, &mut ps);
             }
-            repaint_full(hwnd, panel);
+            window::repaint_full(hwnd, panel);
             unsafe {
                 let _ = EndPaint(hwnd, &ps);
             }
             LRESULT(0)
         }
         WM_ERASEBKGND => LRESULT(1),
+        // 「我要反馈」的通知到点：收起（不打开页面，SYS-8，一次性定时器）
+        WM_TIMER if wparam.0 == copyinfo::TIMER_ID => {
+            copyinfo::on_timer(hwnd);
+            LRESULT(0)
+        }
         // 后台更新线程的状态变更（SYS-7）：只重绘，状态从 `update::state` 现读
         crate::update::notify::WM_UPDATE_STATE => {
-            repaint_full(hwnd, panel);
+            window::repaint_full(hwnd, panel);
             LRESULT(0)
         }
         WM_MOUSEMOVE => {
@@ -211,7 +217,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             if nav_hover != panel.nav_hover || hover != panel.hover {
                 panel.nav_hover = nav_hover;
                 panel.hover = hover;
-                repaint_full(hwnd, panel);
+                window::repaint_full(hwnd, panel);
             }
             LRESULT(0)
         }
@@ -220,7 +226,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             let y = ((lparam.0 >> 16) & 0xFFFF) as u16 as i16 as i32;
             panel.on_click(x, y);
             panel.fit_window(hwnd);
-            repaint_full(hwnd, panel);
+            window::repaint_full(hwnd, panel);
             LRESULT(0)
         }
         // PrintScreen（VK_SNAPSHOT）系统只派发松键消息、不派发按下消息，
@@ -228,7 +234,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_SYSKEYUP | WM_KEYUP if (wparam.0 as u32) == VK_SNAPSHOT.0 as u32 && panel.capturing.is_some() => {
             panel.on_key(VK_SNAPSHOT.0 as u32);
             if panel.capturing.is_none() {
-                repaint_full(hwnd, panel);
+                window::repaint_full(hwnd, panel);
             }
             LRESULT(0)
         }
@@ -236,7 +242,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_MBUTTONDOWN | WM_XBUTTONDOWN if panel.capturing.is_some() => {
             if let Some(vk) = crate::app::mouse::message_vk(msg, wparam.0) {
                 panel.on_key(vk);
-                repaint_full(hwnd, panel);
+                window::repaint_full(hwnd, panel);
             }
             LRESULT(1) // XBUTTON 已处理，TRUE 阻止继续分发
         }
@@ -246,7 +252,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 panel.on_key(wparam.0 as u32);
                 // 捕获结束（键已记录 / Esc 取消）时刷新按钮显示：从等待态切回正常文案
                 if panel.capturing.is_none() {
-                    repaint_full(hwnd, panel);
+                    window::repaint_full(hwnd, panel);
                 }
                 // 捕获态吞掉按键，防止触发系统菜单或其它默认行为
                 LRESULT(0)
@@ -259,48 +265,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         // 管理员进程可能收不到用户级进程的广播（UIPI），故另有注册表监听保底。
         WM_SETTINGCHANGE => {
             if crate::theme::is_theme_change(lparam.0 as usize) && panel.refresh_system_theme() {
-                repaint_full(hwnd, panel);
+                window::repaint_full(hwnd, panel);
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         theme_watch::WM_THEME_CHANGED => {
             if panel.refresh_system_theme() {
-                repaint_full(hwnd, panel);
+                window::repaint_full(hwnd, panel);
             }
             LRESULT(0)
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
-    }
-}
-
-fn app_from(hwnd: HWND) -> Option<&'static mut Panel> {
-    unsafe {
-        let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-        if ptr == 0 {
-            None
-        } else {
-            Some(&mut *(ptr as *mut Panel))
-        }
-    }
-}
-
-/// 全量重绘：tiny-skia 绘制 → RGBA→BGRA → BitBlt 上屏。
-fn repaint_full(hwnd: HWND, panel: &Panel) {
-    let layout = controls::layout(panel.section, panel.scale);
-    let pw = (W as f32 * panel.scale) as u32;
-    let Some(mut pixmap) = Pixmap::new(pw, layout.height as u32) else {
-        return;
-    };
-    draw::render(&mut pixmap, panel, &layout);
-    let w = pixmap.width() as i32;
-    let h = pixmap.height() as i32;
-    convert_rgba_to_bgra(pixmap.data(), panel.dib_bits as usize, w, 0, 0, w, h, 1);
-    unsafe {
-        let hdc = GetDC(Some(hwnd));
-        if hdc.0.is_null() {
-            return;
-        }
-        let _ = BitBlt(hdc, 0, 0, w, h, Some(panel.mem_dc), 0, 0, SRCCOPY);
-        let _ = ReleaseDC(Some(hwnd), hdc);
     }
 }
